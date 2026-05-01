@@ -120,17 +120,7 @@ if not sheets:
 df = list(sheets.values())[0]
 st.success("✅ Loaded from GitHub")
 
-# ── Append new data UI ────────────────────────────────────────────────────────
-with st.expander("📤 Append new market data"):
-    new_file = st.file_uploader("Upload file with new rows", type=["xlsx","xls","csv"], key="rfx_upload")
-    if new_file and st.button("Append & push to GitHub"):
-        with st.spinner("Merging and pushing…"):
-            ok = append_and_push(GH_PATH, sha, sheets, new_file)
-        if ok:
-            st.success("Pushed! Refreshing…")
-            st.rerun()
-        else:
-            st.error("Push failed — check token permissions.")
+
 
 # ── Sidebar controls ──────────────────────────────────────────────────────────
 st.sidebar.header("Settings")
@@ -356,45 +346,69 @@ with tab_mm:
             st.caption(meta["desc"])
 
         with right:
-            colors = ["#4ade80" if v >= 0 else "#f87171" for v in dff[col].fillna(0)]
+            vals = dff[col].fillna(0)
+            y_max = max(abs(vals.max()), abs(vals.min())) * 1.5 or 0.5
+
             fig = go.Figure()
+
+            # Positive fill (green)
+            fig.add_trace(go.Scatter(
+                x=dff["Date"], y=dff[col].clip(lower=0),
+                mode="lines", line=dict(color="#4ade80", width=0),
+                fill="tozeroy", fillcolor="rgba(74,222,128,0.25)",
+                showlegend=False, hoverinfo="skip",
+            ))
+            # Negative fill (red)
+            fig.add_trace(go.Scatter(
+                x=dff["Date"], y=dff[col].clip(upper=0),
+                mode="lines", line=dict(color="#f87171", width=0),
+                fill="tozeroy", fillcolor="rgba(248,113,113,0.25)",
+                showlegend=False, hoverinfo="skip",
+            ))
+            # Main white line on top
             fig.add_trace(go.Scatter(
                 x=dff["Date"], y=dff[col],
-                mode="lines", line=dict(color="#ffffff", width=1),
-                fill="tozeroy",
-                fillcolor="rgba(255,255,255,0.08)",
+                mode="lines", line=dict(color="#ffffff", width=1.2),
+                showlegend=False,
                 hovertemplate="<b>%{x|%b %d %Y}</b><br>Spread: %{y:.3f}<extra></extra>",
             ))
-            fig.add_hline(y=0, line_dash="dash", line_color="rgba(200,200,200,0.4)", line_width=1)
 
-            # Annotation for positive/negative interpretation
-            if meta["pos_label"] and latest_val >= 0:
+            fig.add_hline(y=0, line_dash="dash",
+                          line_color="rgba(200,200,200,0.5)", line_width=1)
+
+            # Always show BOTH annotations inside chart
+            if meta["pos_label"]:
                 fig.add_annotation(
-                    x=0.5, y=0.85, xref="paper", yref="paper",
+                    x=0.5, y=0.82, xref="paper", yref="paper",
                     text=meta["pos_label"], showarrow=False,
-                    font=dict(color="#f87171", size=11, family="monospace"),
-                    bgcolor="rgba(248,113,113,0.15)", bordercolor="#f87171",
-                    borderwidth=1, borderpad=6,
+                    font=dict(color="#f87171", size=10, family="monospace"),
+                    bgcolor="rgba(248,113,113,0.18)", bordercolor="#f87171",
+                    borderwidth=1, borderpad=5,
                 )
-            elif meta["neg_label"] and latest_val < 0:
+            if meta["neg_label"]:
                 fig.add_annotation(
-                    x=0.5, y=0.15, xref="paper", yref="paper",
+                    x=0.5, y=0.18, xref="paper", yref="paper",
                     text=meta["neg_label"], showarrow=False,
-                    font=dict(color="#4ade80", size=11, family="monospace"),
-                    bgcolor="rgba(74,222,128,0.15)", bordercolor="#4ade80",
-                    borderwidth=1, borderpad=6,
+                    font=dict(color="#4ade80", size=10, family="monospace"),
+                    bgcolor="rgba(74,222,128,0.18)", bordercolor="#4ade80",
+                    borderwidth=1, borderpad=5,
                 )
 
             fig.update_layout(
-                height=200,
+                height=220,
                 margin=dict(l=10, r=60, t=10, b=30),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                xaxis=dict(showgrid=False, tickfont=dict(color="#888", size=10),
-                           rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
-                yaxis=dict(showgrid=True, gridcolor="rgba(100,100,100,0.2)",
-                           tickfont=dict(color="#888", size=10),
-                           tickformat=".2f", side="right"),
+                xaxis=dict(
+                    showgrid=False, tickfont=dict(color="#888", size=10),
+                    rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)],
+                ),
+                yaxis=dict(
+                    showgrid=True, gridcolor="rgba(100,100,100,0.2)",
+                    tickfont=dict(color="#888", size=10),
+                    tickformat=".2f", side="right",
+                    range=[-y_max, y_max],
+                ),
                 hovermode="x unified",
                 showlegend=False,
             )
