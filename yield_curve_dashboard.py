@@ -128,14 +128,11 @@ def split_into_sheets(df: pd.DataFrame) -> dict:
     s = extract(SOFTS_COLS);  sheets["softs"]  = s  if not s.empty  else pd.DataFrame()
     return {k: v for k, v in sheets.items() if not v.empty}
 
-@st.cache_data
-def load_sheets(file) -> dict:
-    """Return dict of {sheet_name: DataFrame}. Reads file bytes once."""
+def _parse_bytes(raw: bytes, filename: str) -> dict:
+    """Parse raw xlsx/csv bytes into sheets dict. Not cached (called with bytes)."""
     import io
-    raw  = file.read()
-    name = file.name.lower()
+    name = filename.lower()
     sheets = {}
-
     if name.endswith(".csv"):
         df = pd.read_csv(io.BytesIO(raw))
         df = clean_sheet(df)
@@ -155,20 +152,24 @@ def load_sheets(file) -> dict:
                 df.columns = [shorten(c) if c != "Date" else c for c in df.columns]
                 sheets[sheet] = df
             except Exception as e:
-                st.warning(f"Could not parse sheet '{sheet}': {e}")
-
-        # If only one sheet, split it by column group
+                pass
         if len(sheets) == 1:
             only = list(sheets.values())[0]
             split = split_into_sheets(only)
             if len(split) > 1:
                 sheets = split
-
-    # Ensure yields columns are renamed to short names
     if "yields" in sheets:
         sheets["yields"] = sheets["yields"].rename(
             columns={k:v for k,v in YIELD_RENAME.items() if k in sheets["yields"].columns})
     return sheets
+
+@st.cache_data
+def load_sheets(file) -> dict:
+    """Return dict of {sheet_name: DataFrame}. Reads file bytes once."""
+    import io
+    raw  = file.read()
+    name = file.name.lower()
+    return _parse_bytes(raw, name)
 
 @st.cache_data
 def load_data(file) -> pd.DataFrame:
@@ -449,14 +450,8 @@ def load_from_github() -> tuple[dict, str]:
         r.raise_for_status()
         info      = r.json()
         sha       = info["sha"]
-        raw = base64.b64decode(info["content"])
-        # load_sheets needs file.name to detect xlsx — wrap BytesIO in a class
-        class NamedBuffer(io.BytesIO):
-            def __init__(self, data, name):
-                super().__init__(data)
-                self.name = name
-        fake_file = NamedBuffer(raw, path)
-        sheets = load_sheets(fake_file)
+        raw    = base64.b64decode(info["content"])
+        sheets = _parse_bytes(raw, path)   # parse directly — no file wrapper needed
         return sheets, sha
     except Exception as e:
         st.warning(f"GitHub load failed: {e}")
