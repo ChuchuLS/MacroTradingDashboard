@@ -449,9 +449,13 @@ def load_from_github() -> tuple[dict, str]:
         r.raise_for_status()
         info      = r.json()
         sha       = info["sha"]
-        raw       = base64.b64decode(info["content"])
-        fake_file = io.BytesIO(raw)
-        fake_file.name = path
+        raw = base64.b64decode(info["content"])
+        # load_sheets needs file.name to detect xlsx — wrap BytesIO in a class
+        class NamedBuffer(io.BytesIO):
+            def __init__(self, data, name):
+                super().__init__(data)
+                self.name = name
+        fake_file = NamedBuffer(raw, path)
         sheets = load_sheets(fake_file)
         return sheets, sha
     except Exception as e:
