@@ -585,6 +585,11 @@ with tab_comm:
             return
         cutoff = df["Date"].max() - pd.Timedelta(days=period_days)
         dff = df[df["Date"] >= cutoff][["Date"] + available].copy()
+        # Reindex to business days + ffill to remove all weekend/holiday gaps
+        dff = dff.set_index("Date")
+        bdays = pd.bdate_range(dff.index.min(), dff.index.max())
+        dff = dff.reindex(bdays).ffill().bfill().reset_index()
+        dff = dff.rename(columns={"index": "Date"})
         palette = ["#378ADD","#1D9E75","#D85A30","#9F77DD","#E8A838",
                    "#E05C8A","#4ade80","#f87171","#60a5fa","#facc15","#fb923c","#c084fc"]
 
