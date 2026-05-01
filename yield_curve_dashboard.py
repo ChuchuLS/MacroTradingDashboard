@@ -431,30 +431,52 @@ def _gh_headers():
     return {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
 def load_from_github() -> tuple[dict, str]:
-    """Download xlsx from GitHub, return (sheets_dict, sha).
-    Not cached at this level — cache is on load_sheets which handles the heavy parsing.
-    """
+    """Download xlsx from GitHub, return (sheets_dict, sha)."""
     token, repo, path = _gh_creds()
     if not token or not repo or not path:
         return {}, ""
+
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
     try:
-        url = f"https://api.github.com/repos/{repo}/contents/{path}"
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
         r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code == 401:
-            st.error("❌ GitHub auth failed — check your GITHUB_TOKEN in Secrets.")
+    except Exception as e:
+        st.error(f"❌ Network error: {e}")
+        return {}, ""
+
+    if r.status_code == 401:
+        st.error("❌ GitHub auth failed — GITHUB_TOKEN is wrong or expired.")
+        return {}, ""
+    if r.status_code == 404:
+        st.error(f"❌ File not found. Tried: `{url}`")
+        return {}, ""
+    if r.status_code != 200:
+        st.error(f"❌ GitHub error {r.status_code}: {r.text[:200]}")
+        return {}, ""
+
+    info = r.json()
+    sha  = info.get("sha", "")
+
+    # Files >1MB are not base64-encoded inline — use download_url instead
+    if not info.get("content") or info.get("encoding") != "base64":
+        dl = info.get("download_url")
+        if not dl:
+            st.error(f"❌ No content in GitHub response. Keys: {list(info.keys())}")
             return {}, ""
-        if r.status_code == 404:
-            st.error(f"❌ File not found: `{repo}/{path}` — check GITHUB_REPO and GITHUB_PATH in Secrets.")
+        try:
+            raw = requests.get(dl, timeout=30).content
+        except Exception as e:
+            st.error(f"❌ Download failed: {e}")
             return {}, ""
-        r.raise_for_status()
-        info      = r.json()
-        sha       = info["sha"]
-        raw    = base64.b64decode(info["content"])
-        sheets = _parse_bytes(raw, path)   # parse directly — no file wrapper needed
+    else:
+        raw = base64.b64decode(info["content"].replace("\n", ""))
+
+    try:
+        sheets = _parse_bytes(raw, path)
         return sheets, sha
     except Exception as e:
-        st.warning(f"GitHub load failed: {e}")
+        st.error(f"❌ Parse error: {e}")
         return {}, ""
 
 def push_to_github(new_xlsx_bytes: bytes, sha: str, commit_msg: str) -> bool:
