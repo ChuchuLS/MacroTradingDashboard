@@ -147,20 +147,98 @@ tab_tips, tab_mm, tab_fx = st.tabs([
 # TAB 1 — INFLATION-LINKED BONDS
 # ════════════════════════════════════════════
 with tab_tips:
-    st.subheader("US TIPS")
+    # ── Curve snapshot ───────────────────────────────────────────────────────
+    st.subheader("Real Rates Curve Snapshot")
+
+    # Define tenors and currencies
+    IL_CURVES = {
+        "🇺🇸 US TIPS":  {"5Y":"GTII5",  "10Y":"GTII10", "30Y":"GTII30"},
+        "🇨🇦 Canada":   {"5Y":"GTCAD5Y","10Y":"GTCADII10Y","30Y":"GTCAD30Y"},
+        "🇩🇪 Germany":  {"7Y":"GTDEMII7Y","10Y":"GTDEMII10Y"},
+        "🇬🇧 UK":       {"5Y":"GTGBPII5Y","10Y":"GTGBPII10Y","30Y":"GTGBPII30Y"},
+        "🇯🇵 Japan":    {"10Y":"GTJPYII10Y"},
+    }
+
+    def get_curve_point(col, date):
+        """Get yield for a column on or near a given date."""
+        if col not in df.columns:
+            return None
+        sub = df[df["Date"] <= date][col].dropna()
+        return float(sub.iloc[-1]) if not sub.empty else None
+
+    latest_date = df["Date"].max()
+    week_ago    = latest_date - pd.Timedelta(weeks=1)
+    month_ago   = latest_date - pd.Timedelta(days=30)
+
+    # Build one curve chart per currency
+    curve_cols = st.columns(2)
+    col_idx = 0
+    for ccy, tenors in IL_CURVES.items():
+        if len(tenors) < 2:
+            continue
+        tenor_labels = list(tenors.keys())
+        cols_list    = list(tenors.values())
+
+        now_vals   = [get_curve_point(c, latest_date) for c in cols_list]
+        week_vals  = [get_curve_point(c, week_ago)    for c in cols_list]
+        month_vals = [get_curve_point(c, month_ago)   for c in cols_list]
+
+        fig = go.Figure()
+        if any(v is not None for v in now_vals):
+            fig.add_trace(go.Scatter(
+                x=tenor_labels, y=now_vals, mode="lines+markers",
+                name=f"Now ({latest_date.strftime('%b %d')})",
+                line=dict(color="#378ADD", width=2), marker=dict(size=7),
+            ))
+        if any(v is not None for v in week_vals):
+            fig.add_trace(go.Scatter(
+                x=tenor_labels, y=week_vals, mode="lines+markers",
+                name="1 Week Ago",
+                line=dict(color="#9ca3af", width=1.5, dash="dash"), marker=dict(size=5),
+            ))
+        if any(v is not None for v in month_vals):
+            fig.add_trace(go.Scatter(
+                x=tenor_labels, y=month_vals, mode="lines+markers",
+                name="1 Month Ago",
+                line=dict(color="#6b7280", width=1, dash="dot"), marker=dict(size=5),
+            ))
+        fig.update_layout(
+            title=dict(text=ccy, font=dict(size=13)),
+            margin=dict(l=40, r=20, t=40, b=40),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="left", x=0, font=dict(size=10)),
+            yaxis=dict(title="Yield (%)", tickformat=".2f"),
+            xaxis=dict(title="Tenor"),
+            hovermode="x unified",
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        with curve_cols[col_idx % 2]:
+            st.plotly_chart(fig, width="stretch")
+        col_idx += 1
+
+    st.divider()
+
+    # ── Time series ──────────────────────────────────────────────────────────
+    st.subheader("Real Rates — Time Series")
+
+    st.markdown("**🇺🇸 US TIPS**")
     line_chart(df, ["GTII5","GTII10","GTII30"], "US TIPS Yields", days, normalize)
 
-    st.subheader("International Inflation-Linked")
-    line_chart(df, ["GTCADII10Y","GTDEMII10Y","GTGBPII10Y","GTJPYII10Y"],
-               "10Y IL Bonds — Global", days, normalize)
+    st.markdown("**🇨🇦 Canada**")
+    line_chart(df, ["GTCAD5Y","GTCADII10Y","GTCAD30Y"], "Canada IL Bonds", days, normalize)
 
-    st.subheader("GBP IL Bonds")
-    line_chart(df, ["GTGBPII5Y","GTGBPII10Y","GTGBPII30Y"],
-               "GBP Inflation-Linked", days, normalize)
+    st.markdown("**🇩🇪 Germany**")
+    line_chart(df, ["GTDEMII7Y","GTDEMII10Y"], "Germany IL Bonds", days, normalize)
 
-    st.subheader("CAD Bonds")
-    line_chart(df, ["GTCAD5Y","GTCADII10Y","GTCAD30Y"],
-               "CAD Govt Bonds", days, normalize)
+    st.markdown("**🇬🇧 UK**")
+    line_chart(df, ["GTGBPII5Y","GTGBPII10Y","GTGBPII30Y"], "UK IL Bonds", days, normalize)
+
+    st.markdown("**🇯🇵 Japan**")
+    line_chart(df, ["GTJPYII10Y"], "Japan IL Bonds", days, normalize)
+
+    st.markdown("**🌍 10Y Comparison**")
+    line_chart(df, ["GTII10","GTCADII10Y","GTDEMII10Y","GTGBPII10Y","GTJPYII10Y"],
+               "10Y Real Rates — Global Comparison", days, normalize)
 
 # ════════════════════════════════════════════
 # TAB 2 — MONEY MARKET STRESS
