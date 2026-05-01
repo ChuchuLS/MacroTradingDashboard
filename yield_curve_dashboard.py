@@ -178,13 +178,14 @@ def load_data(file) -> pd.DataFrame:
     return sheets.get("yields", list(sheets.values())[0] if sheets else pd.DataFrame())
 
 # ── Spread chart builder ──────────────────────────────────────────────────────
-def spread_chart(df, short, long, title, lookback=60):
-    if short not in df.columns or long not in df.columns:
-        st.warning(f"Missing columns: {short} or {long}")
+def spread_chart(df, front, back, title, lookback=60):
+    """front = shorter tenor, back = longer tenor. Spread = back - front (always positive in normal curve)."""
+    if front not in df.columns or back not in df.columns:
+        st.warning(f"Missing columns: {front} or {back}")
         return
 
-    spread = (df[long] - df[short]) * 100  # bps
-    regimes = add_regimes(df, f"{short}{long}", short, long, lookback)
+    spread = (df[back] - df[front]) * 100  # bps — long minus short
+    regimes = add_regimes(df, f"{front}{back}", front, back, lookback)
     colors = [REGIME_COLORS.get(r, "#9ca3af") for r in regimes]
 
     dates = df["Date"].tolist()
@@ -498,6 +499,7 @@ with tab_yield:
     yield_curve_snapshot(df_view, tenors)
 
     st.divider()
+    # (front=shorter tenor, back=longer tenor) — spread always computed as back - front
     spreads_to_plot = []
     if "2Y"  in tenors and "10Y" in tenors: spreads_to_plot.append(("2Y",  "10Y", "2s10s spread (bp)"))
     if "10Y" in tenors and "30Y" in tenors: spreads_to_plot.append(("10Y", "30Y", "10s30s spread (bp)"))
@@ -505,9 +507,9 @@ with tab_yield:
     if "2Y"  in tenors and "5Y"  in tenors: spreads_to_plot.append(("2Y",  "5Y",  "2s5s spread (bp)"))
     if "5Y"  in tenors and "30Y" in tenors: spreads_to_plot.append(("5Y",  "30Y", "5s30s spread (bp)"))
 
-    for short, long, title in spreads_to_plot:
+    for front, back, title in spreads_to_plot:
         st.subheader(title)
-        spread_chart(df_view, short, long, title, lookback=lookback)
+        spread_chart(df_view, front, back, title, lookback=lookback)
 
     with st.expander("View raw data"):
         st.dataframe(df_view[["Date"] + tenors].set_index("Date").sort_index(ascending=False),
