@@ -452,7 +452,7 @@ has_github = bool(gh_sheets)
 _token, _repo, _path = _gh_creds()
 
 if has_github:
-    st.success(f"✅ Loaded from GitHub · `{_repo}/{_path}`")
+    st.success("✅ Loaded from GitHub")
 else:
     if not _token:
         st.info("💡 **GitHub not configured.** Add `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_PATH` to Streamlit Cloud → Settings → Secrets.")
@@ -634,7 +634,7 @@ with tab_comm:
         fig.update_layout(
             title=dict(text=title, font=dict(size=13)),
             margin=dict(l=50, r=80, t=36, b=36),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+            legend=dict(orientation="h", yanchor="top", y=-0.15,
                         xanchor="left", x=0, font=dict(size=10)),
             xaxis=dict(type="date", showgrid=False,
                        rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
@@ -697,7 +697,13 @@ with tab_corr:
         unified = frames[0]
         for f in frames[1:]:
             unified = unified.join(f, how="outer")
-        return unified.sort_index().ffill().bfill()
+        unified = unified.sort_index()
+        # Reindex to all weekdays so mismatched calendars don't create gaps
+        all_dates = pd.bdate_range(unified.index.min(), unified.index.max())
+        unified = unified.reindex(all_dates)
+        # Forward-fill: use last known price when market is closed
+        unified = unified.ffill().bfill()
+        return unified
 
     unified    = build_unified(all_sheets, corr_days)
     all_assets = list(unified.columns) if not unified.empty else []
