@@ -284,7 +284,7 @@ def spread_chart(df, front, back, title, lookback=60):
         legend=dict(orientation="h", yanchor="bottom", y=1.02,
                     xanchor="left", x=0, font=dict(size=11)),
         yaxis=dict(title="bp", ticksuffix=" bp"),
-        xaxis=dict(type="date", showgrid=False, rangebreaks=[dict(bounds=["sat","mon"])]),
+        xaxis=dict(type="date", showgrid=False, rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
         hovermode="x",
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -622,16 +622,14 @@ with tab_comm:
                     yaxis="y2" if on_y2 else "y",
                 ))
 
-            y2_label = " / ".join(disp(c) for c in y2_cols) if y2_cols and y1_cols else ""
-            y1_label = " / ".join(disp(c) for c in y1_cols) if y1_cols else "Price"
             if y2_cols and y1_cols:
                 fig.update_layout(
                     yaxis2=dict(
-                        title=y2_label, overlaying="y", side="right",
+                        title="", overlaying="y", side="right",
                         showgrid=False, tickfont=dict(size=10),
                     )
                 )
-            fig.update_layout(yaxis=dict(title=y1_label, showgrid=True))
+            fig.update_layout(yaxis=dict(title="Price", showgrid=True))
 
         fig.update_layout(
             title=dict(text=title, font=dict(size=13)),
@@ -639,7 +637,7 @@ with tab_comm:
             legend=dict(orientation="h", yanchor="bottom", y=1.02,
                         xanchor="left", x=0, font=dict(size=10)),
             xaxis=dict(type="date", showgrid=False,
-                       rangebreaks=[dict(bounds=["sat","mon"])]),
+                       rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
             hovermode="x unified",
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         )
@@ -741,7 +739,7 @@ with tab_corr:
                 margin=dict(l=50, r=20, t=40, b=36),
                 yaxis=dict(title="Correlation", range=[-1.05, 1.05], tickformat=".2f", zeroline=False),
                 xaxis=dict(type="date", showgrid=False,
-                           rangebreaks=[dict(bounds=["sat","mon"])]),
+                           rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
                 hovermode="x unified",
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             )
