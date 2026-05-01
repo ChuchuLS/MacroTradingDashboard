@@ -234,58 +234,66 @@ def spread_chart(df, front, back, title, lookback=60):
 
     spread = (df[back] - df[front]) * 100  # bps — long minus short
     regimes = add_regimes(df, f"{front}{back}", front, back, lookback)
-    colors = [REGIME_COLORS.get(r, "#9ca3af") for r in regimes]
 
     dates = df["Date"].tolist()
-    sv = spread.tolist()
-
-    # Infer bar width from median date gap — handles daily or weekly data
-    if len(dates) > 1:
-        gaps = [(dates[i+1] - dates[i]).days for i in range(min(20, len(dates)-1))]
-        median_gap = sorted(gaps)[len(gaps)//2]
-    else:
-        median_gap = 1
-    bar_width_ms = int(median_gap * 0.7 * 86_400_000)
+    sv    = spread.tolist()
 
     fig = go.Figure()
 
-    # Single bar trace with explicit width in ms.
-    # All bars live in one trace so Plotly cannot drop any on zoom.
-    # Explicit ms width prevents auto-rescaling on zoom (the disappearing bug).
-    fig.add_trace(go.Bar(
-        x=dates,
-        y=sv,
-        width=bar_width_ms,
-        marker=dict(color=colors, line_width=0),
-        showlegend=False,
-        hovertemplate="<b>%{x|%b %d %Y}</b><br>Spread: %{y:.0f} bp<br>Regime: %{customdata}<extra></extra>",
-        customdata=regimes,
+    # ── Approach: single continuous line + per-regime colored fills ────────────
+    # The line is always 1.5px wide regardless of zoom — no bars to drop.
+    # Fill is split into positive (above zero) and negative (below zero).
+    # Regime color is shown via the line color using per-regime segments.
+
+    # Layer 1: green fill above zero
+    fig.add_trace(go.Scatter(
+        x=dates, y=[max(v, 0) if v is not None else 0 for v in sv],
+        mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
+        fill="tozeroy", fillcolor="rgba(74,222,128,0.20)",
+        showlegend=False, hoverinfo="skip",
+    ))
+    # Layer 2: red fill below zero
+    fig.add_trace(go.Scatter(
+        x=dates, y=[min(v, 0) if v is not None else 0 for v in sv],
+        mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
+        fill="tozeroy", fillcolor="rgba(248,113,113,0.20)",
+        showlegend=False, hoverinfo="skip",
     ))
 
-    # Legend-only invisible traces
-    seen = set()
+    # Layer 3: regime-colored line segments (one trace per regime)
+    # Each segment stays its regime color while fills show positive/negative
     for regime, color in REGIME_COLORS.items():
-        if regime in regimes and regime not in seen:
-            seen.add(regime)
-            fig.add_trace(go.Scatter(
-                x=[None], y=[None],
-                mode="markers",
-                marker=dict(symbol="square", size=10, color=color),
-                name=regime,
-                showlegend=True,
-            ))
+        rx, ry = [], []
+        for i, (d, s, r) in enumerate(zip(dates, sv, regimes)):
+            if r == regime:
+                rx.append(d)
+                ry.append(s)
+            else:
+                if rx and rx[-1] is not None:
+                    rx.append(None)
+                    ry.append(None)
+        if not any(v is not None for v in ry):
+            continue
+        fig.add_trace(go.Scatter(
+            x=rx, y=ry,
+            mode="lines",
+            line=dict(color=color, width=1.8),
+            name=regime,
+            showlegend=True,
+            hovertemplate="<b>%{x|%b %d %Y}</b><br>Spread: %{y:.0f} bp<br>" + regime + "<extra></extra>",
+        ))
 
     fig.add_hline(y=0, line_dash="dash", line_color="rgba(150,150,150,0.5)", line_width=1)
 
     fig.update_layout(
         title=dict(text=title, font=dict(size=14)),
-        barmode="overlay",
         margin=dict(l=50, r=20, t=40, b=40),
         legend=dict(orientation="h", yanchor="bottom", y=1.02,
                     xanchor="left", x=0, font=dict(size=11)),
         yaxis=dict(title="bp", ticksuffix=" bp"),
-        xaxis=dict(type="date", showgrid=False, rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
-        hovermode="x",
+        xaxis=dict(type="date", showgrid=False,
+                   rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
+        hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
     )
