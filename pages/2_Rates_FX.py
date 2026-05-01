@@ -271,19 +271,26 @@ with tab_mm:
 
     st.divider()
 
-    # ── Spreads time series ───────────────────────────────────────────────────
+    # ── Spreads — one chart each ──────────────────────────────────────────────
     st.subheader("Money Market Stress Spreads")
-    line_chart(df, SPREADS,
-               "Bloomberg Money Market Stress (SOFR/EFFR/TGCR/GCF spreads)",
-               days, normalize=False, zero_line=True)
+    SPREAD_DEFS = [
+        ("SOFR-IORB (Bank Repos)",         "SOFR − IORB: Bank Repos"),
+        ("EFFR-IORB (Reserve Demand)",      "EFFR − IORB: Reserve Demand"),
+        ("TGCR-RRP (Private Repo Demand)",  "TGCR − RRP: Private Repo Demand"),
+        ("GCF-TPR (Dealer BS Capacity)",    "GCF − TPR: Dealer Balance Sheet Capacity"),
+        ("SOFR-EFFR (FHLB Repo Demand)",    "SOFR − EFFR: FHLB Repo Demand"),
+    ]
+    for col, title in SPREAD_DEFS:
+        line_chart(df, [col], title, days, normalize=False, zero_line=True)
 
     st.divider()
 
-    # ── Reserve Balance & NY Fed SRF ─────────────────────────────────────────
+    # ── Reserve Balance & NY Fed SRF — split ─────────────────────────────────
     st.subheader("Reserve Balance & NY Fed SRF")
-    line_chart(df, ["farwcbls","nypvoa"],
-               "Reserve Balance (Wed Close) & NY Fed Standing Repo Facility",
-               days, normalize=False, zero_line=False)
+    line_chart(df, ["farwcbls"],
+               "Reserve Balance (Wednesday Close)", days, normalize=False)
+    line_chart(df, ["nypvoa"],
+               "NY Fed Standing Repo Facility (SRF)", days, normalize=False)
 
 # ════════════════════════════════════════════
 # TAB 3 — FX BASIS SWAPS
