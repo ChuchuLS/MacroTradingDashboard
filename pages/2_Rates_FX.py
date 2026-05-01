@@ -276,17 +276,131 @@ with tab_mm:
 
     st.divider()
 
-    # ── Spreads — one chart each ──────────────────────────────────────────────
-    st.subheader("Money Market Stress Spreads")
-    SPREAD_DEFS = [
-        ("SOFR-IORB (Bank Repos)",         "SOFR − IORB: Bank Repos"),
-        ("EFFR-IORB (Reserve Demand)",      "EFFR − IORB: Reserve Demand"),
-        ("TGCR-RRP (Private Repo Demand)",  "TGCR − RRP: Private Repo Demand"),
-        ("GCF-TPR (Dealer BS Capacity)",    "GCF − TPR: Dealer Balance Sheet Capacity"),
-        ("SOFR-EFFR (FHLB Repo Demand)",    "SOFR − EFFR: FHLB Repo Demand"),
+    # ── Money Market Stress Monitor ───────────────────────────────────────────
+    st.markdown("## 💹 MONEY MARKET SPREADS MONITOR")
+    st.caption("An overview of key money market spreads and how to interpret them")
+
+    SPREAD_META = [
+        {
+            "col":       "GCF-TPR (Dealer BS Capacity)",
+            "title":     "DEALER BALANCE SHEET CAPACITY",
+            "formula_a": "GCF", "formula_b": "TPR",
+            "desc":      "The spread between interdealer and triparty repo rates, a proxy for funding demand and dealer balance sheet capacity.",
+            "pos_label": "INFLEXIBLE BALANCE SHEETS ↑",
+            "neg_label": "FLEXIBLE BALANCE SHEETS ↓",
+        },
+        {
+            "col":       "TGCR-RRP (Private Repo Demand)",
+            "title":     "PRIVATE REPO DEMAND",
+            "formula_a": "TGCR", "formula_b": "RRP",
+            "desc":      "The spread between private repo & Fed RRP rates, which measures demand for cash vs. collateral.",
+            "pos_label": "EXCESS COLLATERAL ↑",
+            "neg_label": "EXCESS CASH ↓",
+        },
+        {
+            "col":       "SOFR-IORB (Bank Repos)",
+            "title":     "BANK REPOS",
+            "formula_a": "SOFR", "formula_b": "IORB",
+            "desc":      "A positive spread indicates banks are lending reserves in repo on a consistent basis, reducing liquidity elsewhere.",
+            "pos_label": "ABOVE ZERO: BANKS DEPLOY RESERVES CONSISTENTLY INTO REPO MARKETS ↑",
+            "neg_label": "",
+        },
+        {
+            "col":       "EFFR-IORB (Reserve Demand)",
+            "title":     "RESERVE DEMAND",
+            "formula_a": "EFFR", "formula_b": "IORB",
+            "desc":      "A positive spread suggests scarce reserves on a historical basis.",
+            "pos_label": "SCARCITY ↑",
+            "neg_label": "ABUNDANCE ↓",
+        },
+        {
+            "col":       "SOFR-EFFR (FHLB Repo Demand)",
+            "title":     "FHLB REPO DEMAND",
+            "formula_a": "SOFR", "formula_b": "EFFR",
+            "desc":      "The spread suggests where Federal Home Loan Banks might invest more of their liquidity portfolios.",
+            "pos_label": "FHLBs DEPLOY MORE CASH INTO REPOS ↑",
+            "neg_label": "",
+        },
     ]
-    for col, title in SPREAD_DEFS:
-        line_chart(df, [col], title, days, normalize=False, zero_line=True)
+
+    for meta in SPREAD_META:
+        col = meta["col"]
+        if col not in df.columns:
+            continue
+
+        cutoff = df["Date"].max() - pd.Timedelta(days=days)
+        dff = df[df["Date"] >= cutoff][["Date", col]].copy()
+        dff = dff.set_index("Date")
+        bdays = pd.bdate_range(dff.index.min(), dff.index.max())
+        dff = dff.reindex(bdays).ffill().bfill().reset_index()
+        dff = dff.rename(columns={"index": "Date"})
+
+        latest_val = dff[col].dropna().iloc[-1] if not dff[col].dropna().empty else 0
+
+        # Layout: left description col, right chart col
+        left, right = st.columns([1, 3])
+
+        with left:
+            st.markdown(f"### {meta['title']}")
+            # Formula badge
+            st.markdown(
+                f"""<div style='background:#111;border:1px solid #333;padding:10px 14px;
+                border-radius:6px;display:inline-block;margin:8px 0'>
+                <span style='color:#4ade80;font-weight:700;font-size:18px'>{meta['formula_a']}</span>
+                <span style='color:#fff;font-size:18px'> − </span>
+                <span style='color:#f87171;font-weight:700;font-size:18px'>{meta['formula_b']}</span>
+                <br><span style='color:#888;font-size:11px;letter-spacing:2px'>S P R E A D</span>
+                </div>""",
+                unsafe_allow_html=True
+            )
+            st.caption(meta["desc"])
+
+        with right:
+            colors = ["#4ade80" if v >= 0 else "#f87171" for v in dff[col].fillna(0)]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=dff["Date"], y=dff[col],
+                mode="lines", line=dict(color="#ffffff", width=1),
+                fill="tozeroy",
+                fillcolor="rgba(255,255,255,0.08)",
+                hovertemplate="<b>%{x|%b %d %Y}</b><br>Spread: %{y:.3f}<extra></extra>",
+            ))
+            fig.add_hline(y=0, line_dash="dash", line_color="rgba(200,200,200,0.4)", line_width=1)
+
+            # Annotation for positive/negative interpretation
+            if meta["pos_label"] and latest_val >= 0:
+                fig.add_annotation(
+                    x=0.5, y=0.85, xref="paper", yref="paper",
+                    text=meta["pos_label"], showarrow=False,
+                    font=dict(color="#f87171", size=11, family="monospace"),
+                    bgcolor="rgba(248,113,113,0.15)", bordercolor="#f87171",
+                    borderwidth=1, borderpad=6,
+                )
+            elif meta["neg_label"] and latest_val < 0:
+                fig.add_annotation(
+                    x=0.5, y=0.15, xref="paper", yref="paper",
+                    text=meta["neg_label"], showarrow=False,
+                    font=dict(color="#4ade80", size=11, family="monospace"),
+                    bgcolor="rgba(74,222,128,0.15)", bordercolor="#4ade80",
+                    borderwidth=1, borderpad=6,
+                )
+
+            fig.update_layout(
+                height=200,
+                margin=dict(l=10, r=60, t=10, b=30),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(showgrid=False, tickfont=dict(color="#888", size=10),
+                           rangebreaks=[dict(bounds=["sat","mon"], dvalue=86400000)]),
+                yaxis=dict(showgrid=True, gridcolor="rgba(100,100,100,0.2)",
+                           tickfont=dict(color="#888", size=10),
+                           tickformat=".2f", side="right"),
+                hovermode="x unified",
+                showlegend=False,
+            )
+            st.plotly_chart(fig, width="stretch")
+
+        st.divider()
 
     st.divider()
 
