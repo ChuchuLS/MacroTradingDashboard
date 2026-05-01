@@ -109,6 +109,54 @@ SOFTS_NAMES    = {
     "JN1":"Rubber","RS1":"Canola",
 }
 
+# ── Display names: Bloomberg code → "Exchange Product" ────────────────────────
+DISPLAY_NAMES = {
+    # Precious metals (COMEX)
+    "GC1 COMB": "COMEX Gold",
+    "SI1":       "COMEX Silver",
+    "PL1":       "NYMEX Platinum",
+    "PA1":       "NYMEX Palladium",
+    # Industrial / Copper
+    "HG1":       "COMEX Copper",
+    # LME Base Metals
+    "LMCADS03":  "LME Copper (3M)",
+    "LMAHDS03":  "LME Aluminium (3M)",
+    "LMZSDS03":  "LME Zinc (3M)",
+    "LMPBDS03":  "LME Lead (3M)",
+    "LMNIDS03":  "LME Nickel (3M)",
+    "LMSNDS03":  "LME Tin (3M)",
+    # Energy (NYMEX/ICE)
+    "CL1":       "NYMEX WTI Crude",
+    "CL1 COMB":  "NYMEX WTI Crude",
+    "CO1":       "ICE Brent Crude",
+    "NG1":       "NYMEX Nat Gas",
+    # Grains (CBOT)
+    "C 1 COMB":  "CBOT Corn",
+    "S 1":       "CBOT Soybeans",
+    "W 1":       "CBOT Wheat",
+    "SM1":       "CBOT Soybean Meal",
+    "BO1":       "CBOT Soybean Oil",
+    "O 1":       "CBOT Oats",
+    # Softs
+    "SB1":       "ICE Sugar #11",
+    "KC1":       "ICE Coffee",
+    "CT1":       "ICE Cotton",
+    "CC1":       "ICE Cocoa",
+    "JO1":       "ICE OJ",
+    # Livestock (CME)
+    "LC1":       "CME Live Cattle",
+    "LH1":       "CME Lean Hogs",
+    "FC1":       "CME Feeder Cattle",
+    # Other
+    "KO1":       "BMD Palm Oil",
+    "JN1":       "OSE Rubber",
+    "RS1":       "ICE Canola",
+}
+
+def disp(col: str) -> str:
+    """Return display name for a Bloomberg column code."""
+    return DISPLAY_NAMES.get(col, col)
+
 def split_into_sheets(df: pd.DataFrame) -> dict:
     """Split a wide single-sheet DataFrame into logical sub-DataFrames by column group."""
     sheets = {}
@@ -526,9 +574,8 @@ with tab_comm:
     comm_days   = {"1Y":365,"2Y":730,"5Y":1825,"10Y":3650,"All":99999}[comm_period]
 
     METAL_GROUPS = {
-        "Precious Metals":   ["GC1", "SI1", "PL1", "PA1"],
-        "Base Metals (LME)": ["LMCADS03","LMAHDS03","LMZSDS03","LMPBDS03","LMNIDS03","LMSNDS03"],
-        "Copper":            ["HG1"],
+        "Precious Metals & Copper": ["GC1 COMB", "SI1", "HG1", "PL1", "PA1"],
+        "Base Metals (LME)":        ["LMCADS03","LMAHDS03","LMZSDS03","LMPBDS03","LMNIDS03","LMSNDS03"],
     }
 
     def trend_chart(df, cols, title, period_days, normalize=False):
@@ -551,7 +598,7 @@ with tab_comm:
                 y = (y / base - 1) * 100
             use_y2 = (col in ng_cols and main_cols and not normalize)
             fig.add_trace(go.Scatter(
-                x=dff["Date"], y=y, name=col, mode="lines",
+                x=dff["Date"], y=y, name=disp(col), mode="lines",
                 line=dict(width=1.5, color=palette[i % len(palette)]),
                 yaxis="y2" if use_y2 else "y",
             ))
