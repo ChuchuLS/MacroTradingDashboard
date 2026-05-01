@@ -411,35 +411,45 @@ def merge_with_live(hist_df: pd.DataFrame, live_df: pd.DataFrame) -> pd.DataFram
 st.title("📈 US Treasury Yield Curve Dashboard")
 
 # ── GitHub config (from Streamlit secrets) ────────────────────────────────────
-GH_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
-GH_REPO  = st.secrets.get("GITHUB_REPO",  "")   # e.g. "youruser/yourrepo"
-GH_PATH  = st.secrets.get("GITHUB_PATH",  "historicalDataBBG.xlsx")
-GH_API   = f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}"
-GH_HEADERS = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+def _secret(key, default=""):
+    try:
+        val = st.secrets.get(key, default)
+        return val if val is not None else default
+    except Exception:
+        return default
+
+GH_TOKEN = _secret("GITHUB_TOKEN")
+GH_REPO  = _secret("GITHUB_REPO")
+GH_PATH  = _secret("GITHUB_PATH", "historicalDataBBG.xlsx")
+
+def _gh_api():
+    return f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}"
+
+def _gh_headers():
+    return {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 
 @st.cache_data(ttl=300)
 def load_from_github() -> tuple[dict, str]:
-    """Download xlsx from GitHub, return (sheets_dict, sha).
-    sha is needed for the push-back update call."""
-    if not GH_TOKEN or not GH_REPO:
+    """Download xlsx from GitHub, return (sheets_dict, sha)."""
+    if not GH_TOKEN or not GH_REPO or not GH_PATH:
         return {}, ""
     try:
-        r = requests.get(GH_API, headers=GH_HEADERS, timeout=15)
+        r = requests.get(_gh_api(), headers=_gh_headers(), timeout=15)
         r.raise_for_status()
-        info     = r.json()
-        sha      = info["sha"]
-        raw      = base64.b64decode(info["content"])
+        info      = r.json()
+        sha       = info["sha"]
+        raw       = base64.b64decode(info["content"])
         fake_file = io.BytesIO(raw)
         fake_file.name = GH_PATH
         sheets = load_sheets(fake_file)
         return sheets, sha
     except Exception as e:
-        st.error(f"Could not load from GitHub: {e}")
+        st.warning(f"GitHub load failed: {e}")
         return {}, ""
 
 def push_to_github(new_xlsx_bytes: bytes, sha: str, commit_msg: str) -> bool:
     """Push updated xlsx back to GitHub, overwriting the file."""
-    if not GH_TOKEN or not GH_REPO:
+    if not GH_TOKEN or not GH_REPO or not GH_PATH:
         st.error("GitHub credentials not configured in secrets.")
         return False
     payload = {
@@ -447,7 +457,7 @@ def push_to_github(new_xlsx_bytes: bytes, sha: str, commit_msg: str) -> bool:
         "content": base64.b64encode(new_xlsx_bytes).decode(),
         "sha":     sha,
     }
-    r = requests.put(GH_API, headers=GH_HEADERS, json=payload, timeout=30)
+    r = requests.put(_gh_api(), headers=_gh_headers(), json=payload, timeout=30)
     return r.status_code in (200, 201)
 
 def append_new_data(existing_sheets: dict, new_file) -> tuple[dict, bytes]:
