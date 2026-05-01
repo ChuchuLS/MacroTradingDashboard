@@ -272,141 +272,6 @@ def yield_curve_snapshot(df, tenors_available):
     )
     st.plotly_chart(fig, width='stretch', config={'displayModeBar': True})
 
-# ── Live data fetch ───────────────────────────────────────────────────────────
-
-# FRED series → our short yield column names
-FRED_SERIES = {
-    "DGS3MO": "3M",
-    "DGS1":   "12M",
-    "DGS2":   "2Y",
-    "DGS5":   "5Y",
-    "DGS10":  "10Y",
-    "DGS20":  "20Y",
-    "DGS30":  "30Y",
-}
-
-# yfinance tickers → column names matching our sheet columns
-# Yields:     use FRED instead (more accurate)
-# Metals:     GC=F (gold), SI=F (silver), HG=F (copper), PL=F (platinum), PA=F (palladium)
-# LME metals: no free source — skip, keep historical only
-# Energy:     CL=F (WTI crude), BZ=F (Brent), NG=F (nat gas)
-YF_METAL_MAP = {
-    "GC=F": "GC1",
-    "SI=F": "SI1",
-    "HG=F": "HG1",
-    "PL=F": "PL1",
-    "PA=F": "PA1",
-}
-YF_ENERGY_MAP = {
-    "CL=F": "CL1",
-    "BZ=F": "CO1",
-    "NG=F": "NG1",
-}
-# Soft commodities — yfinance futures tickers
-YF_SOFTS_MAP = {
-    "ZC=F": "C 1 COMB",   # Corn
-    "ZS=F": "S 1",         # Soybeans
-    "ZW=F": "W 1",         # Wheat
-    "ZM=F": "SM1",         # Soybean Meal
-    "ZL=F": "BO1",         # Soybean Oil
-    "ZO=F": "O 1",         # Oats
-    "SB=F": "SB1",         # Sugar #11
-    "KC=F": "KC1",         # Coffee
-    "CT=F": "CT1",         # Cotton
-    "CC=F": "CC1",         # Cocoa
-    "OJ=F": "JO1",         # OJ
-    "LE=F": "LC1",         # Live Cattle
-    "HE=F": "LH1",         # Lean Hogs
-    "GF=F": "FC1",         # Feeder Cattle
-}
-
-@st.cache_data(ttl=3600)  # refresh every hour
-@st.cache_data(ttl=3600)
-def fetch_fred_yields(start_date: str) -> pd.DataFrame:
-    """Fetch Treasury CMT yields from FRED public CSV (no API key needed).
-    start_date: pull from 7 days before this date to ensure overlap with hist data.
-    """
-    import urllib.request, io as _io
-    from datetime import datetime, timedelta
-    # Go back 7 days to guarantee we catch any FRED reporting lag
-    fetch_from = (pd.to_datetime(start_date) - timedelta(days=7)).strftime("%Y-%m-%d")
-    base = "https://fred.stlouisfed.org/graph/fredgraph.csv?id="
-    frames = {}
-    errors = []
-    for series, col in FRED_SERIES.items():
-        try:
-            url = f"{base}{series}"
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as r:
-                raw = r.read().decode()
-            df = pd.read_csv(_io.StringIO(raw))
-            # FRED CSV has columns: DATE, <series_id>
-            df.columns = ["Date", col]
-            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-            df[col]    = pd.to_numeric(df[col], errors="coerce")  # "." → NaN
-            df = df.dropna(subset=["Date"])
-            df = df[df["Date"] >= fetch_from]
-            frames[col] = df.set_index("Date")[col]
-        except Exception as e:
-            errors.append(f"{series}: {e}")
-    if errors:
-        st.caption(f"⚠️ FRED fetch issues: {'; '.join(errors[:3])}")
-    if not frames:
-        return pd.DataFrame()
-    result = pd.DataFrame(frames).reset_index()
-    result = result.sort_values("Date").reset_index(drop=True)
-    # Drop rows where all yield cols are NaN (FRED uses "." for missing)
-    yield_cols = [c for c in result.columns if c != "Date"]
-    result = result.dropna(subset=yield_cols, how="all")
-    result[yield_cols] = result[yield_cols].ffill().bfill()
-    return result
-
-@st.cache_data(ttl=3600)
-def fetch_yf_prices(ticker_map: dict, start_date: str) -> pd.DataFrame:
-    """Fetch commodity/energy prices from yfinance."""
-    try:
-        import yfinance as yf
-    except ImportError:
-        return pd.DataFrame()
-    from datetime import timedelta
-    # Pull from 7 days before last hist date to ensure overlap
-    fetch_from = (pd.to_datetime(start_date) - timedelta(days=7)).strftime("%Y-%m-%d")
-    tickers = list(ticker_map.keys())
-    try:
-        raw = yf.download(tickers, start=fetch_from, auto_adjust=True, progress=False)
-        if raw.empty:
-            return pd.DataFrame()
-        if isinstance(raw.columns, pd.MultiIndex):
-            close = raw.xs("Close", axis=1, level=0)
-        else:
-            close = raw[["Close"]].rename(columns={"Close": tickers[0]})
-        close = close.rename(columns=ticker_map)
-        close.index.name = "Date"
-        close = close.reset_index().sort_values("Date").reset_index(drop=True)
-        close = close.ffill().bfill()
-        return close
-    except Exception as e:
-        st.caption(f"⚠️ yfinance fetch issue: {e}")
-        return pd.DataFrame()
-
-def merge_with_live(hist_df: pd.DataFrame, live_df: pd.DataFrame) -> pd.DataFrame:
-    """Merge live data: update overlapping dates + append newer rows."""
-    if live_df.empty:
-        return hist_df
-    if hist_df.empty:
-        return live_df
-    last_hist = hist_df["Date"].max()
-    # Only take rows strictly newer than history
-    new_rows = live_df[live_df["Date"] > last_hist].copy()
-    if new_rows.empty:
-        return hist_df
-    # Only keep columns that exist in hist_df
-    common_cols = ["Date"] + [c for c in new_rows.columns if c in hist_df.columns and c != "Date"]
-    new_rows = new_rows[common_cols]
-    merged = pd.concat([hist_df, new_rows], ignore_index=True)
-    merged = merged.sort_values("Date").reset_index(drop=True)
-    merged = merged.ffill().bfill()
-    return merged
 
 # ── Main app ──────────────────────────────────────────────────────────────────
 st.title("📈 US Treasury Yield Curve Dashboard")
@@ -581,40 +446,16 @@ metal_df_hist  = all_sheets.get("metal",  pd.DataFrame())
 energy_df_hist = all_sheets.get("energy", pd.DataFrame())
 softs_df_hist  = all_sheets.get("softs",  pd.DataFrame())
 
-# ── Live data top-up ──────────────────────────────────────────────────────────
-with st.spinner("Fetching latest market data…"):
-    _yield_start  = str(df_hist["Date"].max().date()) if not df_hist.empty else "2020-01-01"
-    _metal_start  = str(metal_df_hist["Date"].max().date()) if not metal_df_hist.empty else "2020-01-01"
-    _energy_start = str(energy_df_hist["Date"].max().date()) if not energy_df_hist.empty else "2020-01-01"
-
-    _softs_start  = str(softs_df_hist["Date"].max().date()) if not softs_df_hist.empty else "2020-01-01"
-    live_yields = fetch_fred_yields(_yield_start)
-    live_metals = fetch_yf_prices(YF_METAL_MAP,  _metal_start)
-    live_energy = fetch_yf_prices(YF_ENERGY_MAP, _energy_start)
-    live_softs  = fetch_yf_prices(YF_SOFTS_MAP,  _softs_start)
-
-df        = merge_with_live(df_hist,        live_yields)
-metal_df  = merge_with_live(metal_df_hist,  live_metals)
-energy_df = merge_with_live(energy_df_hist, live_energy)
-softs_df  = merge_with_live(softs_df_hist,  live_softs)
+df        = df_hist
+metal_df  = metal_df_hist
+energy_df = energy_df_hist
+softs_df  = softs_df_hist
 
 tenors = [c for c in ["3M","12M","2Y","5Y","10Y","20Y","30Y"] if c in df.columns]
 
-# Status banner — show last date per data source
-_y_last  = df["Date"].max().strftime("%b %d, %Y")         if not df.empty         else "n/a"
-_m_last  = metal_df["Date"].max().strftime("%b %d, %Y")   if not metal_df.empty   else "n/a"
-_e_last  = energy_df["Date"].max().strftime("%b %d, %Y")  if not energy_df.empty  else "n/a"
-_s_last  = softs_df["Date"].max().strftime("%b %d, %Y")   if not softs_df.empty   else "n/a"
-_y_live  = "✅ live" if not live_yields.empty else "⚠️ file only"
-_m_live  = "✅ live" if not live_metals.empty else "⚠️ file only"
-_e_live  = "✅ live" if not live_energy.empty else "⚠️ file only"
-_s_live  = "✅ live" if not live_softs.empty  else "⚠️ file only"
-st.caption(
-    f"Yields **{_y_last}** {_y_live} · "
-    f"Metals **{_m_last}** {_m_live} · "
-    f"Energy **{_e_last}** {_e_live} · "
-    f"Softs **{_s_last}** {_s_live}"
-)
+# Status banner
+_y_last = df["Date"].max().strftime("%b %d, %Y") if not df.empty else "n/a"
+st.caption(f"Data through **{_y_last}** · Upload new data using the append button above to update")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_yield, tab_comm, tab_corr = st.tabs(["📈 Yield Curve", "📦 Commodities & Energy", "🔗 Correlation"])
