@@ -88,8 +88,10 @@ def _clean(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _shorten(col: str) -> str:
-    return col.replace(" Comdty","").replace(" Index","").replace(" Govt","") \
-              .replace(" Curncy","").strip()
+    suffixes = [' Comdty',' Index',' index',' Govt',' govt',' Curncy',' curncy']
+    for s in suffixes:
+        col = col.replace(s, '')
+    return col.strip()
 
 def parse_excel_bytes(raw: bytes, filename: str) -> dict:
     """Parse raw xlsx bytes → dict of {sheet_name: DataFrame}."""
