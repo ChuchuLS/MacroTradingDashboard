@@ -45,7 +45,7 @@ DISPLAY = {
     "USBGRATE":  "BGCR",
     "UREPTATO":  "Tri-Party Avg",
     "farwcbls":  "Reserve Bal (Wed)",
-    "nypvoa":    "NY Fed SRF",
+    "nyrpvoa":    "NY Fed SRF",
     # Money market spreads
     "SOFR-IORB (Bank Repos)":            "SOFR−IORB (Bank Repos)",
     "EFFR-IORB (Reserve Demand)":        "EFFR−IORB (Reserve Demand)",
@@ -78,6 +78,11 @@ def line_chart(df, cols, title, period_days, normalize=False, zero_line=False):
         return
     cutoff = df["Date"].max() - pd.Timedelta(days=period_days)
     dff = df[df["Date"] >= cutoff][["Date"] + available].copy()
+    # Reindex to business days + ffill to remove all weekend/holiday gaps
+    dff = dff.set_index("Date")
+    bdays = pd.bdate_range(dff.index.min(), dff.index.max())
+    dff = dff.reindex(bdays).ffill().bfill().reset_index()
+    dff = dff.rename(columns={"index": "Date"})
 
     fig = go.Figure()
     for i, col in enumerate(available):
@@ -156,7 +161,7 @@ with tab_tips:
         "🇨🇦 Canada":   {"5Y":"GTCAD5Y","10Y":"GTCADII10Y","30Y":"GTCAD30Y"},
         "🇩🇪 Germany":  {"7Y":"GTDEMII7Y","10Y":"GTDEMII10Y"},
         "🇬🇧 UK":       {"5Y":"GTGBPII5Y","10Y":"GTGBPII10Y","30Y":"GTGBPII30Y"},
-        "🇯🇵 Japan":    {"10Y":"GTJPYII10Y"},
+        "🇯🇵 Japan":    {"5Y":"GTJPYII5Y","10Y":"GTJPYII10Y"},
     }
 
     def get_curve_point(col, date):
@@ -234,7 +239,7 @@ with tab_tips:
     line_chart(df, ["GTGBPII5Y","GTGBPII10Y","GTGBPII30Y"], "UK IL Bonds", days, normalize)
 
     st.markdown("**🇯🇵 Japan**")
-    line_chart(df, ["GTJPYII10Y"], "Japan IL Bonds", days, normalize)
+    line_chart(df, ["GTJPYII5Y","GTJPYII10Y"], "Japan IL Bonds", days, normalize)
 
     st.markdown("**🌍 10Y Comparison**")
     line_chart(df, ["GTII10","GTCADII10Y","GTDEMII10Y","GTGBPII10Y","GTJPYII10Y"],
@@ -289,7 +294,7 @@ with tab_mm:
     st.subheader("Reserve Balance & NY Fed SRF")
     line_chart(df, ["farwcbls"],
                "Reserve Balance (Wednesday Close)", days, normalize=False)
-    line_chart(df, ["nypvoa"],
+    line_chart(df, ["nyrpvoa"],
                "NY Fed Standing Repo Facility (SRF)", days, normalize=False)
 
 # ════════════════════════════════════════════
