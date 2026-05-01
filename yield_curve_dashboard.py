@@ -410,37 +410,41 @@ def merge_with_live(hist_df: pd.DataFrame, live_df: pd.DataFrame) -> pd.DataFram
 # ── Main app ──────────────────────────────────────────────────────────────────
 st.title("📈 US Treasury Yield Curve Dashboard")
 
-# ── GitHub config (from Streamlit secrets) ────────────────────────────────────
-def _secret(key, default=""):
+# ── GitHub config — read secrets lazily inside functions, never at module level
+def _gh_creds():
+    """Read GitHub secrets at call time (never cached at module load)."""
     try:
-        val = st.secrets.get(key, default)
-        return val if val is not None else default
+        token = st.secrets.get("GITHUB_TOKEN") or ""
+        repo  = st.secrets.get("GITHUB_REPO")  or ""
+        path  = st.secrets.get("GITHUB_PATH")  or "historicalDataBBG.xlsx"
     except Exception:
-        return default
-
-GH_TOKEN = _secret("GITHUB_TOKEN")
-GH_REPO  = _secret("GITHUB_REPO")
-GH_PATH  = _secret("GITHUB_PATH", "historicalDataBBG.xlsx")
+        token, repo, path = "", "", "historicalDataBBG.xlsx"
+    return token, repo, path
 
 def _gh_api():
-    return f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}"
+    _, repo, path = _gh_creds()
+    return f"https://api.github.com/repos/{repo}/contents/{path}"
 
 def _gh_headers():
-    return {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    token, _, _ = _gh_creds()
+    return {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
 @st.cache_data(ttl=300)
 def load_from_github() -> tuple[dict, str]:
     """Download xlsx from GitHub, return (sheets_dict, sha)."""
-    if not GH_TOKEN or not GH_REPO or not GH_PATH:
+    token, repo, path = _gh_creds()
+    if not token or not repo or not path:
         return {}, ""
     try:
-        r = requests.get(_gh_api(), headers=_gh_headers(), timeout=15)
+        url = f"https://api.github.com/repos/{repo}/contents/{path}"
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+        r = requests.get(url, headers=headers, timeout=15)
         r.raise_for_status()
         info      = r.json()
         sha       = info["sha"]
         raw       = base64.b64decode(info["content"])
         fake_file = io.BytesIO(raw)
-        fake_file.name = GH_PATH
+        fake_file.name = path
         sheets = load_sheets(fake_file)
         return sheets, sha
     except Exception as e:
@@ -449,15 +453,18 @@ def load_from_github() -> tuple[dict, str]:
 
 def push_to_github(new_xlsx_bytes: bytes, sha: str, commit_msg: str) -> bool:
     """Push updated xlsx back to GitHub, overwriting the file."""
-    if not GH_TOKEN or not GH_REPO or not GH_PATH:
+    token, repo, path = _gh_creds()
+    if not token or not repo or not path:
         st.error("GitHub credentials not configured in secrets.")
         return False
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     payload = {
         "message": commit_msg,
         "content": base64.b64encode(new_xlsx_bytes).decode(),
         "sha":     sha,
     }
-    r = requests.put(_gh_api(), headers=_gh_headers(), json=payload, timeout=30)
+    r = requests.put(url, headers=headers, json=payload, timeout=30)
     return r.status_code in (200, 201)
 
 def append_new_data(existing_sheets: dict, new_file) -> tuple[dict, bytes]:
@@ -500,12 +507,13 @@ def append_new_data(existing_sheets: dict, new_file) -> tuple[dict, bytes]:
 # ── Load data: GitHub first, fallback to manual upload ───────────────────────
 gh_sheets, gh_sha = load_from_github()
 has_github = bool(gh_sheets)
+_token, _repo, _path = _gh_creds()
 
 if has_github:
-    st.success(f"✅ Loaded from GitHub · `{GH_REPO}/{GH_PATH}`")
+    st.success(f"✅ Loaded from GitHub · `{_repo}/{_path}`")
 else:
-    if not GH_TOKEN:
-        st.info("💡 **GitHub not configured.** Add `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_PATH` to `.streamlit/secrets.toml` to enable auto-load and push. See sidebar for setup guide.")
+    if not _token:
+        st.info("💡 **GitHub not configured.** Add `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_PATH` to Streamlit Cloud → Settings → Secrets.")
     st.subheader("Manual upload")
 
 col_upload, col_update = st.columns([3, 2])
