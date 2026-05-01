@@ -244,62 +244,59 @@ with tab_tips:
 # TAB 2 — MONEY MARKET STRESS
 # ════════════════════════════════════════════
 with tab_mm:
-    st.subheader("Policy & Overnight Rates")
-    line_chart(df, ["SOFRRATE","FEDL01","IRRBIOER","FDTRFTRL","UREPTATO"],
-               "Key Money Market Rates", days, normalize)
-
-    st.subheader("Money Market Stress Spreads")
-    spreads = [
+    SPREADS = [
         "SOFR-IORB (Bank Repos)",
         "EFFR-IORB (Reserve Demand)",
         "TGCR-RRP (Private Repo Demand)",
         "GCF-TPR (Dealer BS Capacity)",
         "SOFR-EFFR (FHLB Repo Demand)",
     ]
-    line_chart(df, spreads, "Bloomberg Money Market Stress Indicators", days,
-               normalize=False, zero_line=True)
 
-    # Show latest spread values as metrics
-    latest = df[df[spreads].notna().any(axis=1)].dropna(subset=spreads, how='all').iloc[-1]
-    prev   = df[df[spreads].notna().any(axis=1)].dropna(subset=spreads, how='all').iloc[-2]
-    cols_m = st.columns(len(spreads))
-    for i, s in enumerate(spreads):
-        val  = latest[s] if pd.notna(latest[s]) else float("nan")
-        chg  = (latest[s] - prev[s]) if pd.notna(latest[s]) and pd.notna(prev[s]) else float("nan")
-        cols_m[i].metric(
-            disp(s),
-            f"{val:.2f} bp" if not pd.isna(val) else "n/a",
-            f"{chg:+.2f}" if not pd.isna(chg) else None,
-        )
+    # ── Metric cards ─────────────────────────────────────────────────────────
+    avail_spreads = [s for s in SPREADS if s in df.columns]
+    if avail_spreads:
+        valid = df[avail_spreads].notna().any(axis=1)
+        latest_row = df[valid].iloc[-1]
+        prev_row   = df[valid].iloc[-2]
+        cols_m = st.columns(len(avail_spreads))
+        for i, s in enumerate(avail_spreads):
+            val = latest_row[s] if pd.notna(latest_row[s]) else None
+            chg = (latest_row[s] - prev_row[s]) if (
+                pd.notna(latest_row[s]) and pd.notna(prev_row[s])) else None
+            cols_m[i].metric(
+                disp(s),
+                f"{val:.2f} bp" if val is not None else "n/a",
+                f"{chg:+.2f}" if chg is not None else None,
+            )
 
-    st.subheader("Reserve Balance & SRF")
-    line_chart(df, ["farwcbls","nypvoa","UREPGATO"],
-               "Reserve Balance & Repo Facility", days)
+    st.divider()
+
+    # ── Spreads time series ───────────────────────────────────────────────────
+    st.subheader("Money Market Stress Spreads")
+    line_chart(df, SPREADS,
+               "Bloomberg Money Market Stress (SOFR/EFFR/TGCR/GCF spreads)",
+               days, normalize=False, zero_line=True)
+
+    st.divider()
+
+    # ── Reserve Balance & NY Fed SRF ─────────────────────────────────────────
+    st.subheader("Reserve Balance & NY Fed SRF")
+    line_chart(df, ["farwcbls","nypvoa"],
+               "Reserve Balance (Wed Close) & NY Fed Standing Repo Facility",
+               days, normalize=False, zero_line=False)
 
 # ════════════════════════════════════════════
 # TAB 3 — FX BASIS SWAPS
 # ════════════════════════════════════════════
 with tab_fx:
-    st.subheader("EUR/USD Basis")
-    line_chart(df, ["EUXOQQC","EUXOQQ1"], "EUR/USD Cross-Currency Basis",
-               days, normalize=False, zero_line=True)
+    # All FX basis in one chart
+    ALL_FX = ["EUXOQQC","EUXOQQ1",
+              "BPXOQQC","BPXOQQ1",
+              "JYBSS3M","JYBSS12M",
+              "CDXOQQC","CDXOQQ1",
+              "ADBSQQC","ADBSQQ1"]
 
-    st.subheader("GBP/USD Basis")
-    line_chart(df, ["BPXOQQC","BPXOQQ1"], "GBP/USD Cross-Currency Basis",
+    st.subheader("Cross-Currency Basis Swaps — All Pairs")
+    line_chart(df, ALL_FX,
+               "EUR / GBP / JPY / CAD / AUD vs USD Basis Swaps",
                days, normalize=False, zero_line=True)
-
-    st.subheader("JPY Basis")
-    line_chart(df, ["JYBSS3M","JYBSS12M"], "JPY Cross-Currency Basis",
-               days, normalize=False, zero_line=True)
-
-    st.subheader("CAD/USD Basis")
-    line_chart(df, ["CDXOQQC","CDXOQQ1"], "CAD/USD Cross-Currency Basis",
-               days, normalize=False, zero_line=True)
-
-    st.subheader("AUD/USD Basis")
-    line_chart(df, ["ADBSQQC","ADBSQQ1"], "AUD/USD Cross-Currency Basis",
-               days, normalize=False, zero_line=True)
-
-    st.subheader("All FX Basis — 1Y Tenors")
-    line_chart(df, ["EUXOQQ1","BPXOQQ1","CDXOQQ1","ADBSQQ1","JYBSS12M"],
-               "1Y Cross-Currency Basis Comparison", days, normalize=False, zero_line=True)
