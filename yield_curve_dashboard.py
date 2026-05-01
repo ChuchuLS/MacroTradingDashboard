@@ -574,8 +574,8 @@ with tab_comm:
     comm_days   = {"1Y":365,"2Y":730,"5Y":1825,"10Y":3650,"All":99999}[comm_period]
 
     METAL_GROUPS = {
-        "Precious Metals & Copper": ["GC1 COMB", "SI1", "HG1", "PL1", "PA1"],
-        "Base Metals (LME)":        ["LMCADS03","LMAHDS03","LMZSDS03","LMPBDS03","LMNIDS03","LMSNDS03"],
+        "Precious Metals":   ["GC1 COMB", "SI1", "PL1", "PA1"],
+        "Base Metals (LME & COMEX)": ["HG1","LMCADS03","LMAHDS03","LMZSDS03","LMPBDS03","LMNIDS03","LMSNDS03"],
     }
 
     def trend_chart(df, cols, title, period_days, normalize=False):
@@ -587,41 +587,62 @@ with tab_comm:
         dff = df[df["Date"] >= cutoff][["Date"] + available].copy()
         palette = ["#378ADD","#1D9E75","#D85A30","#9F77DD","#E8A838",
                    "#E05C8A","#4ade80","#f87171","#60a5fa","#facc15","#fb923c","#c084fc"]
-        fig = go.Figure()
-        # Separate axes for NG1 (very different scale) vs oil prices
-        ng_cols  = [c for c in available if "NG" in c]
-        main_cols = [c for c in available if c not in ng_cols]
-        for i, col in enumerate(available):
-            y = dff[col].copy()
-            if normalize:
-                base = y.iloc[0] if y.iloc[0] != 0 else 1
+
+        if normalize:
+            # Single axis — all % returns comparable
+            fig = go.Figure()
+            for i, col in enumerate(available):
+                y = dff[col].copy()
+                base = y.dropna().iloc[0] if not y.dropna().empty else 1
+                base = base if base != 0 else 1
                 y = (y / base - 1) * 100
-            use_y2 = (col in ng_cols and main_cols and not normalize)
-            fig.add_trace(go.Scatter(
-                x=dff["Date"], y=y, name=disp(col), mode="lines",
-                line=dict(width=1.5, color=palette[i % len(palette)]),
-                yaxis="y2" if use_y2 else "y",
-            ))
-        yaxis2_cfg = dict(
-            title="NG1 Price", overlaying="y", side="right",
-            showgrid=False, tickfont=dict(size=10),
-        ) if (ng_cols and main_cols and not normalize) else {}
-        layout_kw = dict(
+                fig.add_trace(go.Scatter(
+                    x=dff["Date"], y=y, name=disp(col), mode="lines",
+                    line=dict(width=1.5, color=palette[i % len(palette)]),
+                ))
+            fig.update_layout(yaxis=dict(title="% change from start", showgrid=True))
+        else:
+            # Auto dual-axis: group cols by price magnitude, put outliers on right axis
+            medians = {c: dff[c].median() for c in available if dff[c].notna().any()}
+            if not medians:
+                return
+            med_vals = sorted(medians.values())
+            overall_median = med_vals[len(med_vals)//2]
+            # cols whose median is <10% or >1000% of the group median go on y2
+            y2_cols = [c for c, m in medians.items()
+                       if m < overall_median * 0.1 or m > overall_median * 10]
+            y1_cols = [c for c in available if c not in y2_cols]
+
+            fig = go.Figure()
+            for i, col in enumerate(available):
+                on_y2 = col in y2_cols and y1_cols  # only use y2 if there's a y1
+                fig.add_trace(go.Scatter(
+                    x=dff["Date"], y=dff[col], name=disp(col), mode="lines",
+                    line=dict(width=1.5, color=palette[i % len(palette)]),
+                    yaxis="y2" if on_y2 else "y",
+                ))
+
+            y2_label = " / ".join(disp(c) for c in y2_cols) if y2_cols and y1_cols else ""
+            y1_label = " / ".join(disp(c) for c in y1_cols) if y1_cols else "Price"
+            if y2_cols and y1_cols:
+                fig.update_layout(
+                    yaxis2=dict(
+                        title=y2_label, overlaying="y", side="right",
+                        showgrid=False, tickfont=dict(size=10),
+                    )
+                )
+            fig.update_layout(yaxis=dict(title=y1_label, showgrid=True))
+
+        fig.update_layout(
             title=dict(text=title, font=dict(size=13)),
-            margin=dict(l=50, r=60, t=36, b=36),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(size=10)),
-            yaxis=dict(title="% change" if normalize else "Price", showgrid=True),
-            xaxis=dict(
-                type="date", showgrid=False,
-                # Remove weekend/holiday gaps
-                rangebreaks=[dict(bounds=["sat","mon"])],
-            ),
+            margin=dict(l=50, r=80, t=36, b=36),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="left", x=0, font=dict(size=10)),
+            xaxis=dict(type="date", showgrid=False,
+                       rangebreaks=[dict(bounds=["sat","mon"])]),
             hovermode="x unified",
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         )
-        if yaxis2_cfg:
-            layout_kw["yaxis2"] = yaxis2_cfg
-        fig.update_layout(**layout_kw)
         st.plotly_chart(fig, width='stretch')
 
     if metal_df.empty and energy_df.empty:
