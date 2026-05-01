@@ -336,6 +336,12 @@ def _gh_creds():
         token, repo, path = "", "", "historicalDataBBG.xlsx"
     return token, repo, path
 
+def _upload_password():
+    try:
+        return st.secrets.get("UPLOAD_PASSWORD") or ""
+    except Exception:
+        return ""
+
 def _gh_api():
     _, repo, path = _gh_creds()
     return f"https://api.github.com/repos/{repo}/contents/{path}"
@@ -458,28 +464,90 @@ else:
         st.info("💡 **GitHub not configured.** Add `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_PATH` to Streamlit Cloud → Settings → Secrets.")
     st.subheader("Manual upload")
 
-col_upload, col_update = st.columns([3, 2])
+if not has_github:
+    uploaded_file = st.file_uploader("Upload historicalDataBBG.xlsx", type=["xlsx","xls","csv"])
+else:
+    uploaded_file = None
 
-with col_upload:
-    if not has_github:
-        uploaded_file = st.file_uploader("Upload historicalDataBBG.xlsx", type=["xlsx","xls","csv"])
-    else:
-        uploaded_file = None
+# ── Data update panel (password protected) ────────────────────────────────────
+if has_github:
+    with st.expander("📤 Update market data"):
+        pwd_input = st.text_input("Enter upload password", type="password", key="upload_pwd")
+        correct_pwd = _upload_password()
 
-with col_update:
-    if has_github:
-        st.markdown("**📤 Append new market data**")
-        new_data_file = st.file_uploader("Upload file with new rows to append", type=["xlsx","xls","csv"], key="new_data")
-        if new_data_file and st.button("✅ Append & push to GitHub"):
-            with st.spinner("Merging and pushing to GitHub…"):
-                merged_sheets, new_bytes = append_new_data(gh_sheets, new_data_file)
-                ok = push_to_github(new_bytes, gh_sha, f"Data update via dashboard")
-            if ok:
-                st.success("Pushed to GitHub! Refreshing…")
-                st.cache_data.clear()
-                st.rerun()
-            else:
-                st.error("Push failed — check your GitHub token permissions.")
+        if pwd_input and pwd_input != correct_pwd:
+            st.error("❌ Wrong password")
+        elif pwd_input == correct_pwd and correct_pwd != "":
+            st.success("✅ Authenticated")
+            st.markdown("Upload **one file** containing all your latest data. "
+                        "The app will automatically update both `historicalDataBBG.xlsx` "
+                        "and `historicalDataRatesFX.xlsx` based on column names.")
+
+            new_data_file = st.file_uploader(
+                "Upload update file (xlsx with all columns)",
+                type=["xlsx","xls","csv"], key="new_data"
+            )
+
+            if new_data_file:
+                # Preview what will be updated
+                try:
+                    preview_raw  = new_data_file.read()
+                    new_data_file.seek(0)
+                    preview_df   = _parse_bytes(preview_raw, new_data_file.name)
+                    for sh, df_p in preview_df.items():
+                        last = df_p["Date"].max().strftime("%b %d, %Y") if "Date" in df_p.columns else "?"
+                        st.caption(f"  • **{sh}**: {len(df_p)} rows, latest: {last}")
+                except Exception:
+                    pass
+
+                if st.button("✅ Append & push to GitHub", type="primary"):
+                    # Load RatesFX file path from secrets
+                    try:
+                        ratesfx_path = st.secrets.get("GITHUB_PATH_RATESFX") or "historicalDataRatesFX.xlsx"
+                    except Exception:
+                        ratesfx_path = "historicalDataRatesFX.xlsx"
+
+                    with st.spinner("Merging and pushing to GitHub…"):
+                        # Parse the uploaded file once
+                        update_raw   = new_data_file.read()
+                        new_parsed   = _parse_bytes(update_raw, new_data_file.name)
+
+                        # ── Update historicalDataBBG.xlsx ──────────────────
+                        bbg_cols = set(c for sh in gh_sheets.values()
+                                       for c in sh.columns if c != "Date")
+                        new_bbg  = {k: v for k, v in new_parsed.items()
+                                    if any(c in bbg_cols for c in v.columns if c != "Date")}
+                        ok_bbg = False
+                        if new_bbg:
+                            merged_bbg, bytes_bbg = append_new_data(gh_sheets, new_data_file)
+                            ok_bbg = push_to_github(bytes_bbg, gh_sha, "Data update: BBG")
+
+                        # ── Update historicalDataRatesFX.xlsx ──────────────
+                        from utils.data_loader import load_file, append_and_push
+                        rfx_sheets, rfx_sha = load_file(ratesfx_path)
+                        ok_rfx = False
+                        if rfx_sheets and new_parsed:
+                            rfx_cols = set(c for sh in rfx_sheets.values()
+                                           for c in sh.columns if c != "Date")
+                            new_rfx  = {k: v for k, v in new_parsed.items()
+                                        if any(c in rfx_cols for c in v.columns if c != "Date")}
+                            if new_rfx:
+                                import io as _io
+                                new_data_file.seek(0)
+                                ok_rfx = append_and_push(ratesfx_path, rfx_sha,
+                                                         rfx_sheets, new_data_file)
+
+                    results = []
+                    if ok_bbg: results.append("historicalDataBBG.xlsx ✅")
+                    if ok_rfx: results.append("historicalDataRatesFX.xlsx ✅")
+                    if results:
+                        st.success(f"Pushed: {', '.join(results)}")
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.warning("Nothing was pushed — check column names match existing data.")
+        else:
+            st.caption("🔒 Password required to upload data.")
 
 # Resolve which sheets to use
 if has_github:
