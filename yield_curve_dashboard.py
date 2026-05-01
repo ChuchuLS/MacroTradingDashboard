@@ -429,9 +429,10 @@ def _gh_headers():
     token, _, _ = _gh_creds()
     return {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
-@st.cache_data(ttl=300)
 def load_from_github() -> tuple[dict, str]:
-    """Download xlsx from GitHub, return (sheets_dict, sha)."""
+    """Download xlsx from GitHub, return (sheets_dict, sha).
+    Not cached at this level — cache is on load_sheets which handles the heavy parsing.
+    """
     token, repo, path = _gh_creds()
     if not token or not repo or not path:
         return {}, ""
@@ -439,6 +440,12 @@ def load_from_github() -> tuple[dict, str]:
         url = f"https://api.github.com/repos/{repo}/contents/{path}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
         r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 401:
+            st.error("❌ GitHub auth failed — check your GITHUB_TOKEN in Secrets.")
+            return {}, ""
+        if r.status_code == 404:
+            st.error(f"❌ File not found: `{repo}/{path}` — check GITHUB_REPO and GITHUB_PATH in Secrets.")
+            return {}, ""
         r.raise_for_status()
         info      = r.json()
         sha       = info["sha"]
